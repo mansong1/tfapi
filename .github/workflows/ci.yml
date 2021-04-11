@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+
+  format:
+    name: Rust Format
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: Format Code
+      run: cargo fmt --all -- --check --color=always
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: clippy
+        override: true
+    - uses: actions-rs/clippy-check@v1.0.7
+      with:
+        name: Clippy Lint
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Hadolint Check
+      uses: jbergstroem/hadolint-gh-action@v1
+
+  test:
+      name: Test
+      runs-on: ubuntu-latest
+      
+      steps:
+      - uses: actions/checkout@v2
+      - name: Run tests
+        run: cargo test
+
+  coverage:
+      name: Code Coverage
+      runs-on: ubuntu-latest
+      
+      steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1.3
+        with:
+          args: '--ignore-tests'
+  
+  scan:
+    needs: test
+    name: Scan Image
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Build local container
+        uses: docker/build-push-action@v2
+        with:
+          tags: localbuild/testimage:${{ github.sha }}
+          push: false
+          load: true
+
+      - name: Scan image
+        uses: anchore/scan-action@v2
+        with:
+          image: "localbuild/testimage:${{ github.sha }}"
+        
+  createtag:
+    needs: scan
+    name: Create Tag
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Create and Push tag
+      uses: anothrNick/github-tag-action@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO_OWNER: mansong1
+        WITH_V: true
